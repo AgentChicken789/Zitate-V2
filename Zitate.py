@@ -10,8 +10,8 @@ ADMIN_PASSWORD = "admin123"  # ⚠️ HIER PASSWORT ÄNDERN!
 SECRET_KEY = "dein-geheimer-schluessel-hier-aendern"  # ⚠️ WICHTIG: Ändern für Produktion!
 
 # Supabase Konfiguration
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "DEINE_SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "DEIN_SUPABASE_KEY")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://znrkghgtfpygiawzivpt.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_-R_iKeuuppOByIUu2y9U-g_yPlQFyOj")
 
 # ============ FLASK APP SETUP ============
 app = Flask(__name__)
