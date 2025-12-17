@@ -6,8 +6,8 @@ from functools import wraps
 from supabase import create_client, Client
 
 # ============ KONFIGURATION ============
-ADMIN_PASSWORD = "admin123"  # ⚠️ HIER PASSWORT ÄNDERN!
-SECRET_KEY = "dein-geheimer-schluessel-hier-aendern"  # ⚠️ WICHTIG: Ändern für Produktion!
+ADMIN_PASSWORD = "mbg"  #  HIER PASSWORT ÄNDERN!
+SECRET_KEY = "dein-geheimer-schluessel-hier-aendern"  #  WICHTIG: Ändern für Produktion!
 
 # Supabase Konfiguration
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://znrkghgtfpygiawzivpt.supabase.co")
@@ -607,7 +607,7 @@ HTML_TEMPLATE = '''
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>📚 Zitate-Manager</h1>
+            <h1>Zitate-Manager</h1>
             <div class="header-controls">
                 <div class="theme-toggle" onclick="toggleTheme()"></div>
                 <button class="btn" id="loginBtn" onclick="showLoginModal()">Login</button>
@@ -618,18 +618,18 @@ HTML_TEMPLATE = '''
 
         <!-- Zitat des Tages -->
         <div class="quote-of-day" id="quoteOfDay">
-            <h2>✨ Zitat des Tages ✨</h2>
+            <h2>Zitat des Tages</h2>
             <div id="dailyQuoteContent"></div>
         </div>
 
         <!-- Admin Controls -->
         <div class="filter-section hidden" id="adminControls">
-            <button class="btn" onclick="showAddModal()">➕ Neues Zitat hinzufügen</button>
+            <button class="btn" onclick="showAddModal()">Neues Zitat hinzufügen</button>
         </div>
 
         <!-- Filter Section -->
         <div class="filter-section">
-            <h3 style="margin-bottom: 15px;">🔍 Zitate filtern</h3>
+            <h3 style="margin-bottom: 15px;">Zitate filtern</h3>
             <div class="filter-grid">
                 <div class="form-group">
                     <label>Gruppe</label>
@@ -660,7 +660,7 @@ HTML_TEMPLATE = '''
     <div class="modal" id="loginModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>🔐 Admin Login</h2>
+                <h2>Admin Login</h2>
                 <button class="close-btn" onclick="closeModal('loginModal')">&times;</button>
             </div>
             <div class="form-group">
@@ -706,7 +706,7 @@ HTML_TEMPLATE = '''
     <div class="modal" id="randomQuoteModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>🎲 Zufälliges Zitat</h2>
+                <h2>Zufälliges Zitat</h2>
                 <button class="close-btn" onclick="closeModal('randomQuoteModal')">&times;</button>
             </div>
             <div id="randomQuoteContent"></div>
@@ -822,8 +822,8 @@ HTML_TEMPLATE = '''
 
             const actions = isLoggedIn ? `
                 <div class="quote-actions">
-                    <button class="btn btn-secondary" onclick="editQuote(${quote.id})">✏️ Bearbeiten</button>
-                    <button class="btn btn-danger" onclick="deleteQuote(${quote.id})">🗑️ Löschen</button>
+                    <button class="btn btn-secondary" onclick="editQuote(${quote.id})">Bearbeiten</button>
+                    <button class="btn btn-danger" onclick="deleteQuote(${quote.id})">Löschen</button>
                 </div>
             ` : '';
 
