@@ -1,177 +1,35 @@
-from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for
-from datetime import datetime, timedelta
-import os
+from flask import Flask, render_template_string, request, jsonify, session
+from datetime import datetime, date
 import random
-from functools import wraps
+import secrets
+import os
 from supabase import create_client, Client
 
-# ============ KONFIGURATION ============
-ADMIN_PASSWORD = "mbg"  #  HIER PASSWORT ÄNDERN!
-SECRET_KEY = "dein-geheimer-schluessel-hier-aendern"  #  WICHTIG: Ändern für Produktion!
+# ============= KONFIGURATION =============
+ADMIN_PASSWORD = "mbg"  # HIER PASSWORT ÄNDERN
+SUPABASE_URL = os.environ.get("https://znrkghgtfpygiawzivpt.supabase.co", "")
+SUPABASE_KEY = os.environ.get("sb_publishable_-R_iKeuuppOByIUu2y9U-g_yPlQFyOj", "")
+# =========================================
 
-# Supabase Konfiguration
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://znrkghgtfpygiawzivpt.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_-R_iKeuuppOByIUu2y9U-g_yPlQFyOj")
-
-# ============ FLASK APP SETUP ============
 app = Flask(__name__)
-app.secret_key = SECRET_KEY
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
+app.secret_key = secrets.token_hex(16)
 
-# Supabase Client
+# Supabase Client initialisieren
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
-    print(f"Fehler bei Supabase-Verbindung: {e}")
+    print(f"Fehler beim Verbinden mit Supabase: {e}")
     supabase = None
 
-# ============ HILFSFUNKTIONEN ============
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
-            return jsonify({'error': 'Nicht autorisiert'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
-
-# ============ ROUTEN ============
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
-
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    password = data.get('password', '')
-    
-    if password == ADMIN_PASSWORD:
-        session['logged_in'] = True
-        session.permanent = True
-        return jsonify({'success': True, 'message': 'Erfolgreich eingeloggt!'})
-    return jsonify({'success': False, 'message': 'Falsches Passwort!'}), 401
-
-@app.route('/api/logout', methods=['POST'])
-def logout():
-    session.pop('logged_in', None)
-    return jsonify({'success': True, 'message': 'Erfolgreich ausgeloggt!'})
-
-@app.route('/api/check-auth')
-def check_auth():
-    return jsonify({'logged_in': session.get('logged_in', False)})
-
-@app.route('/api/zitate', methods=['GET'])
-def get_zitate():
-    try:
-        # Filter-Parameter
-        gruppe = request.args.get('gruppe')
-        datum_von = request.args.get('datum_von')
-        datum_bis = request.args.get('datum_bis')
-        
-        # Basis-Query
-        query = supabase.table('zitate').select('*')
-        
-        # Filter anwenden
-        if gruppe and gruppe != 'alle':
-            query = query.eq('gruppe', gruppe)
-        if datum_von:
-            query = query.gte('datum', datum_von)
-        if datum_bis:
-            query = query.lte('datum', datum_bis)
-        
-        # Sortierung
-        query = query.order('datum', desc=True)
-        
-        response = query.execute()
-        return jsonify({'success': True, 'zitate': response.data})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/zitate/<int:id>', methods=['GET'])
-def get_zitat(id):
-    try:
-        response = supabase.table('zitate').select('*').eq('id', id).execute()
-        if response.data:
-            return jsonify({'success': True, 'zitat': response.data[0]})
-        return jsonify({'success': False, 'error': 'Zitat nicht gefunden'}), 404
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/zitate', methods=['POST'])
-@login_required
-def create_zitat():
-    try:
-        data = request.get_json()
-        
-        # Validierung
-        if not data.get('text') or not data.get('autor'):
-            return jsonify({'success': False, 'error': 'Text und Autor sind erforderlich'}), 400
-        
-        # Datum setzen
-        datum = data.get('datum') or datetime.now().strftime('%Y-%m-%d')
-        
-        # Zitat erstellen
-        zitat = {
-            'text': data['text'],
-            'autor': data['autor'],
-            'gruppe': data.get('gruppe', 'Andere'),
-            'datum': datum
-        }
-        
-        response = supabase.table('zitate').insert(zitat).execute()
-        return jsonify({'success': True, 'zitat': response.data[0]})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/zitate/<int:id>', methods=['PUT'])
-@login_required
-def update_zitat(id):
-    try:
-        data = request.get_json()
-        
-        updates = {}
-        if 'text' in data:
-            updates['text'] = data['text']
-        if 'autor' in data:
-            updates['autor'] = data['autor']
-        if 'gruppe' in data:
-            updates['gruppe'] = data['gruppe']
-        if 'datum' in data:
-            updates['datum'] = data['datum']
-        
-        response = supabase.table('zitate').update(updates).eq('id', id).execute()
-        return jsonify({'success': True, 'zitat': response.data[0] if response.data else None})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/zitate/<int:id>', methods=['DELETE'])
-@login_required
-def delete_zitat(id):
-    try:
-        supabase.table('zitate').delete().eq('id', id).execute()
-        return jsonify({'success': True, 'message': 'Zitat gelöscht'})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/zitat-des-tages')
-def zitat_des_tages():
-    try:
-        response = supabase.table('zitate').select('*').execute()
-        if response.data:
-            # Zufälliges Zitat auswählen
-            zitat = random.choice(response.data)
-            return jsonify({'success': True, 'zitat': zitat})
-        return jsonify({'success': False, 'error': 'Keine Zitate verfügbar'}), 404
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-# ============ HTML TEMPLATE ============
-HTML_TEMPLATE = '''
+# HTML Template
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zitate-Manager</title>
+    <title>Klassenzitate</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' style='stop-color:%237c3aed;stop-opacity:1' /><stop offset='100%' style='stop-color:%23a78bfa;stop-opacity:1' /></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23grad)'/><text x='50' y='68' font-size='50' font-weight='bold' text-anchor='middle' fill='white' font-family='Arial'>K</text></svg>">
     <style>
         * {
             margin: 0;
@@ -179,59 +37,67 @@ HTML_TEMPLATE = '''
             box-sizing: border-box;
         }
 
-        :root {
-            --bg-primary: #ffffff;
-            --bg-secondary: #f8f9fa;
-            --bg-card: #ffffff;
-            --text-primary: #1a1a1a;
-            --text-secondary: #6c757d;
-            --accent: #3b82f6;
-            --accent-hover: #2563eb;
-            --border: #e5e7eb;
-            --shadow: rgba(0, 0, 0, 0.1);
-            --glow: rgba(59, 130, 246, 0.4);
-        }
-
-        [data-theme="dark"] {
-            --bg-primary: #0f172a;
-            --bg-secondary: #1e293b;
-            --bg-card: #1e293b;
-            --text-primary: #f1f5f9;
-            --text-secondary: #94a3b8;
-            --accent: #3b82f6;
-            --accent-hover: #60a5fa;
-            --border: #334155;
-            --shadow: rgba(0, 0, 0, 0.5);
-            --glow: rgba(59, 130, 246, 0.6);
-        }
-
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            transition: background 0.3s, color 0.3s;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            color: #e2e8f0;
             min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 20% 50%, rgba(124, 58, 237, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
         }
 
         .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
+            position: relative;
+            z-index: 1;
         }
 
         /* Header */
         .header {
+            padding: 1.5rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 20px 0;
-            margin-bottom: 30px;
-            animation: slideDown 0.5s ease;
+            backdrop-filter: blur(10px);
+            background: rgba(15, 23, 42, 0.8);
+            border-bottom: 1px solid rgba(124, 58, 237, 0.2);
         }
 
-        .header h1 {
-            font-size: 2.5rem;
-            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #7c3aed, #a78bfa);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        .logo-text {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a78bfa, #7c3aed);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -239,222 +105,265 @@ HTML_TEMPLATE = '''
 
         .header-controls {
             display: flex;
-            gap: 10px;
+            gap: 1rem;
+            align-items: center;
         }
 
-        /* Buttons */
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            background: var(--accent);
-            color: white;
-            cursor: pointer;
-            font-size: 1rem;
-            transition: all 0.3s;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn:hover {
-            background: var(--accent-hover);
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px var(--glow);
-        }
-
-        .btn:active {
-            transform: translateY(0);
-        }
-
-        .btn::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.3);
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
-        }
-
-        .btn:active::before {
-            width: 300px;
-            height: 300px;
-        }
-
-        .btn-secondary {
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-        }
-
-        .btn-danger {
-            background: #ef4444;
-        }
-
-        .btn-danger:hover {
-            background: #dc2626;
-        }
-
-        /* Theme Toggle */
         .theme-toggle {
-            width: 60px;
-            height: 30px;
-            background: var(--bg-secondary);
-            border-radius: 15px;
-            position: relative;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(124, 58, 237, 0.3);
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            font-size: 1.2rem;
             cursor: pointer;
-            border: 2px solid var(--border);
-        }
-
-        .theme-toggle::after {
-            content: '🌙';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 22px;
-            height: 22px;
-            background: var(--accent);
-            border-radius: 50%;
-            transition: transform 0.3s;
+            transition: all 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 12px;
+            color: #a78bfa;
         }
 
-        [data-theme="dark"] .theme-toggle::after {
-            content: '☀️';
-            transform: translateX(30px);
+        .theme-toggle:hover {
+            background: rgba(124, 58, 237, 0.3);
+            transform: scale(1.05);
         }
 
-        /* Filter Section */
-        .filter-section {
-            background: var(--bg-card);
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 6px var(--shadow);
-            animation: fadeIn 0.5s ease;
+        .btn {
+            padding: 0.65rem 1.25rem;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
-        .filter-grid {
+        .btn-primary {
+            background: linear-gradient(135deg, #7c3aed, #a78bfa);
+            color: white;
+            box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(124, 58, 237, 0.6);
+        }
+
+        .btn-secondary {
+            background: rgba(30, 41, 59, 0.5);
+            color: #e2e8f0;
+            border: 1px solid rgba(124, 58, 237, 0.3);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(124, 58, 237, 0.3);
+        }
+
+        /* Main Content */
+        .main-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .controls {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(10px);
+            padding: 1.5rem;
+            border-radius: 16px;
+            margin-bottom: 2rem;
+            border: 1px solid rgba(124, 58, 237, 0.2);
+        }
+
+        .filter-group {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
+            gap: 1rem;
+            margin-bottom: 1rem;
         }
 
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        .form-group label {
-            font-weight: 600;
-            color: var(--text-secondary);
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #94a3b8;
             font-size: 0.9rem;
+            font-weight: 500;
         }
 
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            padding: 10px;
-            border: 2px solid var(--border);
+        .input-group input,
+        .input-group select {
+            width: 100%;
+            padding: 0.65rem;
+            border: 1px solid rgba(124, 58, 237, 0.3);
             border-radius: 8px;
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            font-size: 1rem;
+            background: rgba(15, 23, 42, 0.6);
+            color: #e2e8f0;
+            font-size: 0.95rem;
             transition: all 0.3s;
         }
 
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
+        .input-group input:focus,
+        .input-group select:focus {
             outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--glow);
+            border-color: #7c3aed;
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
         }
 
-        /* Quote Card */
+        .button-group {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+        }
+
+        /* Quote Cards Grid */
+        .quotes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1.5rem;
+        }
+
         .quote-card {
-            background: var(--bg-card);
-            padding: 25px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px var(--shadow);
-            border-left: 4px solid var(--accent);
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
+            backdrop-filter: blur(10px);
+            padding: 1.75rem;
+            border-radius: 20px;
+            border: 2px solid transparent;
+            position: relative;
             transition: all 0.3s;
-            animation: fadeInUp 0.5s ease;
+            overflow: hidden;
+        }
+
+        .quote-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 20px;
+            padding: 2px;
+            background: linear-gradient(135deg, #7c3aed, #3b82f6, #06b6d4);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .quote-card:hover::before {
+            opacity: 1;
         }
 
         .quote-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 10px 20px var(--glow);
+            box-shadow: 0 20px 40px rgba(124, 58, 237, 0.3);
         }
 
-        .quote-text {
-            font-size: 1.2rem;
-            line-height: 1.6;
-            margin-bottom: 15px;
-            font-style: italic;
-        }
-
-        .quote-text::before {
-            content: '"';
-            font-size: 2rem;
-            color: var(--accent);
-            margin-right: 5px;
-        }
-
-        .quote-text::after {
-            content: '"';
-            font-size: 2rem;
-            color: var(--accent);
-            margin-left: 5px;
-        }
-
-        .quote-meta {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .quote-author {
-            font-weight: 600;
-            color: var(--text-primary);
+        .quote-marks {
+            position: absolute;
+            right: 1.5rem;
+            top: 1.5rem;
+            font-size: 4rem;
+            color: rgba(124, 58, 237, 0.15);
+            font-family: Georgia, serif;
+            line-height: 1;
         }
 
         .quote-badge {
-            padding: 5px 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.4rem 0.9rem;
             border-radius: 20px;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             font-weight: 600;
-        }
-
-        .badge-schueler {
-            background: #10b981;
-            color: white;
+            margin-bottom: 1rem;
         }
 
         .badge-lehrer {
-            background: #f59e0b;
-            color: white;
+            background: rgba(124, 58, 237, 0.3);
+            color: #c4b5fd;
+            border: 1px solid rgba(124, 58, 237, 0.5);
+        }
+
+        .badge-lehrer::before {
+            content: '▶';
+            margin-right: 0.2rem;
+        }
+
+        .badge-schüler {
+            background: rgba(6, 182, 212, 0.3);
+            color: #67e8f9;
+            border: 1px solid rgba(6, 182, 212, 0.5);
+        }
+
+        .badge-schüler::before {
+            content: '▶';
+            margin-right: 0.2rem;
         }
 
         .badge-andere {
-            background: #6366f1;
-            color: white;
+            background: rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.5);
         }
 
-        .quote-actions {
+        .badge-andere::before {
+            content: '▶';
+            margin-right: 0.2rem;
+        }
+
+        .quote-text {
+            font-size: 1.1rem;
+            line-height: 1.7;
+            margin-bottom: 1.25rem;
+            font-style: italic;
+            color: #f1f5f9;
+            position: relative;
+            z-index: 1;
+        }
+
+        .quote-author {
+            color: #94a3b8;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            font-size: 0.95rem;
+        }
+
+        .quote-date {
+            color: #64748b;
+            font-size: 0.85rem;
+        }
+
+        .admin-controls {
             display: flex;
-            gap: 10px;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(124, 58, 237, 0.2);
+        }
+
+        .btn-small {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+        }
+
+        .btn-edit {
+            background: rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.5);
+        }
+
+        .btn-delete {
+            background: rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.5);
         }
 
         /* Modal */
@@ -465,526 +374,288 @@ HTML_TEMPLATE = '''
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.8);
             z-index: 1000;
-            animation: fadeIn 0.3s;
+            backdrop-filter: blur(5px);
         }
 
         .modal.active {
             display: flex;
-            align-items: center;
             justify-content: center;
-        }
-
-        .modal-content {
-            background: var(--bg-card);
-            padding: 30px;
-            border-radius: 12px;
-            max-width: 500px;
-            width: 90%;
-            max-height: 90vh;
-            overflow-y: auto;
-            animation: scaleIn 0.3s;
-            box-shadow: 0 20px 60px var(--shadow);
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            animation: fadeIn 0.3s ease;
         }
 
-        .modal-header h2 {
-            color: var(--text-primary);
-        }
-
-        .close-btn {
-            background: none;
-            border: none;
-            font-size: 1.5rem;
-            cursor: pointer;
-            color: var(--text-secondary);
-            transition: color 0.3s;
-        }
-
-        .close-btn:hover {
-            color: var(--text-primary);
-        }
-
-        /* Animations */
         @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
         }
 
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        .modal-content {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+            backdrop-filter: blur(20px);
+            padding: 2rem;
+            border-radius: 20px;
+            max-width: 500px;
+            width: 90%;
+            border: 2px solid rgba(124, 58, 237, 0.3);
+            animation: slideUp 0.3s ease;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
         }
 
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
         }
 
-        @keyframes scaleIn {
-            from {
-                opacity: 0;
-                transform: scale(0.9);
-            }
-            to {
-                opacity: 1;
-                transform: scale(1);
-            }
+        .modal h2 {
+            margin-bottom: 1.5rem;
+            background: linear-gradient(135deg, #a78bfa, #7c3aed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 1.5rem;
         }
 
-        /* Loading */
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: var(--text-secondary);
+        .form-group {
+            margin-bottom: 1.25rem;
         }
 
-        .spinner {
-            border: 4px solid var(--border);
-            border-top: 4px solid var(--accent);
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #94a3b8;
+            font-weight: 500;
+            font-size: 0.9rem;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid rgba(124, 58, 237, 0.3);
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.6);
+            color: #e2e8f0;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+            font-family: inherit;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #7c3aed;
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .modal-buttons .btn {
+            flex: 1;
+        }
+
+        /* Alerts */
+        .alert {
+            padding: 1rem 1.25rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            animation: slideIn 0.3s ease;
+            border-left: 4px solid;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(-100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .alert-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #6ee7b7;
+            border-color: #10b981;
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border-color: #ef4444;
         }
 
         /* Responsive */
         @media (max-width: 768px) {
-            .header h1 {
-                font-size: 1.8rem;
+            .header {
+                flex-direction: column;
+                gap: 1rem;
             }
 
-            .filter-grid {
+            .filter-group {
                 grid-template-columns: 1fr;
             }
-        }
 
-        .quote-of-day {
-            background: linear-gradient(135deg, var(--accent), #8b5cf6);
-            color: white;
-            padding: 30px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            text-align: center;
-            animation: fadeIn 0.5s ease;
-        }
+            .quotes-grid {
+                grid-template-columns: 1fr;
+            }
 
-        .quote-of-day h2 {
-            margin-bottom: 20px;
-        }
+            .button-group {
+                flex-direction: column;
+            }
 
-        .hidden {
-            display: none;
+            .button-group .btn {
+                width: 100%;
+                justify-content: center;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
         <div class="header">
-            <h1>Zitate-Manager</h1>
+            <div class="logo">
+                <div class="logo-icon">K</div>
+                <div class="logo-text">Klassenzitate</div>
+            </div>
             <div class="header-controls">
-                <div class="theme-toggle" onclick="toggleTheme()"></div>
-                <button class="btn" id="loginBtn" onclick="showLoginModal()">Login</button>
-                <button class="btn btn-danger hidden" id="logoutBtn" onclick="logout()">Logout</button>
-                <button class="btn btn-secondary" onclick="showRandomQuote()">🎲 Zufälliges Zitat</button>
+                <button class="theme-toggle" onclick="toggleTheme()" title="Theme wechseln">◐</button>
+                {% if session.get('admin') %}
+                    <button class="btn btn-primary" onclick="showAddModal()">+ Neues Zitat</button>
+                    <button class="btn btn-secondary" onclick="logout()">Logout</button>
+                {% else %}
+                    <button class="btn btn-primary" onclick="showLoginModal()">Admin-Login</button>
+                {% endif %}
             </div>
         </div>
 
-        <!-- Zitat des Tages -->
-        <div class="quote-of-day" id="quoteOfDay">
-            <h2>Zitat des Tages</h2>
-            <div id="dailyQuoteContent"></div>
-        </div>
+        <div class="main-content">
+            <div id="alert-container"></div>
 
-        <!-- Admin Controls -->
-        <div class="filter-section hidden" id="adminControls">
-            <button class="btn" onclick="showAddModal()">Neues Zitat hinzufügen</button>
-        </div>
+            <div class="controls">
+                <div class="filter-group">
+                    <div class="input-group">
+                        <label>Von Datum</label>
+                        <input type="date" id="filterDateFrom">
+                    </div>
+                    <div class="input-group">
+                        <label>Bis Datum</label>
+                        <input type="date" id="filterDateTo">
+                    </div>
+                    <div class="input-group">
+                        <label>Gruppe</label>
+                        <select id="filterGroup">
+                            <option value="">Alle</option>
+                            <option value="Schüler">Schüler</option>
+                            <option value="Lehrer">Lehrer</option>
+                            <option value="Andere">Andere</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="applyFilters()">Filter anwenden</button>
+                    <button class="btn btn-secondary" onclick="resetFilters()">Filter zurücksetzen</button>
+                    <button class="btn btn-primary" onclick="showRandomQuote()">Zufälliges Zitat</button>
+                </div>
+            </div>
 
-        <!-- Filter Section -->
-        <div class="filter-section">
-            <h3 style="margin-bottom: 15px;">Zitate filtern</h3>
-            <div class="filter-grid">
+            <div class="quotes-grid" id="quotesGrid"></div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div class="modal" id="loginModal">
+        <div class="modal-content">
+            <h2>Admin Login</h2>
+            <div class="form-group">
+                <label>Passwort</label>
+                <input type="password" id="loginPassword" onkeypress="if(event.key==='Enter') login()" placeholder="Passwort eingeben...">
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" onclick="login()">Login</button>
+                <button class="btn btn-secondary" onclick="closeModal('loginModal')">Abbrechen</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Quote Modal -->
+    <div class="modal" id="quoteModal">
+        <div class="modal-content">
+            <h2 id="quoteModalTitle">Neues Zitat</h2>
+            <form id="quoteForm">
+                <input type="hidden" id="quoteId">
+                <div class="form-group">
+                    <label>Zitat</label>
+                    <textarea id="quoteText" required placeholder="Zitat eingeben..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Autor</label>
+                    <input type="text" id="quoteAuthor" required placeholder="Name des Autors...">
+                </div>
                 <div class="form-group">
                     <label>Gruppe</label>
-                    <select id="filterGruppe" onchange="loadQuotes()">
-                        <option value="alle">Alle</option>
+                    <select id="quoteGroup" required>
                         <option value="Schüler">Schüler</option>
                         <option value="Lehrer">Lehrer</option>
                         <option value="Andere">Andere</option>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Von Datum</label>
-                    <input type="date" id="filterDatumVon" onchange="loadQuotes()">
+                    <label>Datum</label>
+                    <input type="date" id="quoteDate">
                 </div>
-                <div class="form-group">
-                    <label>Bis Datum</label>
-                    <input type="date" id="filterDatumBis" onchange="loadQuotes()">
+                <div class="modal-buttons">
+                    <button type="submit" class="btn btn-primary">Speichern</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('quoteModal')">Abbrechen</button>
                 </div>
-            </div>
-            <button class="btn btn-secondary" onclick="resetFilters()">Filter zurücksetzen</button>
-        </div>
-
-        <!-- Quotes List -->
-        <div id="quotesList"></div>
-    </div>
-
-    <!-- Login Modal -->
-    <div class="modal" id="loginModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Admin Login</h2>
-                <button class="close-btn" onclick="closeModal('loginModal')">&times;</button>
-            </div>
-            <div class="form-group">
-                <label>Passwort</label>
-                <input type="password" id="loginPassword" onkeypress="if(event.key==='Enter') login()">
-            </div>
-            <button class="btn" onclick="login()" style="width: 100%; margin-top: 15px;">Login</button>
-        </div>
-    </div>
-
-    <!-- Add/Edit Modal -->
-    <div class="modal" id="quoteModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modalTitle">Neues Zitat</h2>
-                <button class="close-btn" onclick="closeModal('quoteModal')">&times;</button>
-            </div>
-            <div class="form-group">
-                <label>Zitat Text*</label>
-                <textarea id="quoteText" rows="4" required></textarea>
-            </div>
-            <div class="form-group">
-                <label>Autor*</label>
-                <input type="text" id="quoteAuthor" required>
-            </div>
-            <div class="form-group">
-                <label>Gruppe</label>
-                <select id="quoteGruppe">
-                    <option value="Schüler">Schüler</option>
-                    <option value="Lehrer">Lehrer</option>
-                    <option value="Andere">Andere</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Datum</label>
-                <input type="date" id="quoteDatum">
-            </div>
-            <button class="btn" onclick="saveQuote()" style="width: 100%; margin-top: 15px;">Speichern</button>
+            </form>
         </div>
     </div>
 
     <!-- Random Quote Modal -->
-    <div class="modal" id="randomQuoteModal">
+    <div class="modal" id="randomModal">
         <div class="modal-content">
-            <div class="modal-header">
-                <h2>Zufälliges Zitat</h2>
-                <button class="close-btn" onclick="closeModal('randomQuoteModal')">&times;</button>
-            </div>
+            <h2>Zufälliges Zitat</h2>
             <div id="randomQuoteContent"></div>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" onclick="showRandomQuote()">Neues Zitat</button>
+                <button class="btn btn-secondary" onclick="closeModal('randomModal')">Schließen</button>
+            </div>
         </div>
     </div>
 
     <script>
-        let isLoggedIn = false;
-        let currentEditId = null;
+        let quotes = [];
+        const isAdmin = {{ 'true' if session.get('admin') else 'false' }};
 
         // Theme Toggle
         function toggleTheme() {
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
+            showAlert('Theme-Wechsel aktuell nicht verfügbar', 'error');
         }
 
-        // Load saved theme
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-theme', savedTheme);
-
-        // Check Auth Status
-        async function checkAuth() {
-            try {
-                const response = await fetch('/api/check-auth');
-                const data = await response.json();
-                isLoggedIn = data.logged_in;
-                updateUI();
-            } catch (error) {
-                console.error('Auth check failed:', error);
-            }
-        }
-
-        // Update UI based on login status
-        function updateUI() {
-            document.getElementById('loginBtn').classList.toggle('hidden', isLoggedIn);
-            document.getElementById('logoutBtn').classList.toggle('hidden', !isLoggedIn);
-            document.getElementById('adminControls').classList.toggle('hidden', !isLoggedIn);
-            loadQuotes();
-        }
-
-        // Login
-        async function login() {
-            const password = document.getElementById('loginPassword').value;
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    isLoggedIn = true;
-                    closeModal('loginModal');
-                    updateUI();
-                    alert(data.message);
-                } else {
-                    alert(data.message);
-                }
-            } catch (error) {
-                alert('Login fehlgeschlagen');
-            }
-        }
-
-        // Logout
-        async function logout() {
-            try {
-                await fetch('/api/logout', { method: 'POST' });
-                isLoggedIn = false;
-                updateUI();
-                alert('Erfolgreich ausgeloggt');
-            } catch (error) {
-                alert('Logout fehlgeschlagen');
-            }
-        }
-
-        // Load Quotes
-        async function loadQuotes() {
-            const gruppe = document.getElementById('filterGruppe').value;
-            const datumVon = document.getElementById('filterDatumVon').value;
-            const datumBis = document.getElementById('filterDatumBis').value;
-
-            const params = new URLSearchParams();
-            if (gruppe !== 'alle') params.append('gruppe', gruppe);
-            if (datumVon) params.append('datum_von', datumVon);
-            if (datumBis) params.append('datum_bis', datumBis);
-
-            const quotesList = document.getElementById('quotesList');
-            quotesList.innerHTML = '<div class="loading"><div class="spinner"></div>Lade Zitate...</div>';
-
-            try {
-                const response = await fetch(`/api/zitate?${params}`);
-                const data = await response.json();
-
-                if (data.success && data.zitate.length > 0) {
-                    quotesList.innerHTML = data.zitate.map(quote => createQuoteCard(quote)).join('');
-                } else {
-                    quotesList.innerHTML = '<div class="loading">Keine Zitate gefunden</div>';
-                }
-            } catch (error) {
-                quotesList.innerHTML = '<div class="loading">Fehler beim Laden der Zitate</div>';
-            }
-        }
-
-        // Create Quote Card HTML
-        function createQuoteCard(quote) {
-            const badgeClass = {
-                'Schüler': 'badge-schueler',
-                'Lehrer': 'badge-lehrer',
-                'Andere': 'badge-andere'
-            }[quote.gruppe] || 'badge-andere';
-
-            const actions = isLoggedIn ? `
-                <div class="quote-actions">
-                    <button class="btn btn-secondary" onclick="editQuote(${quote.id})">Bearbeiten</button>
-                    <button class="btn btn-danger" onclick="deleteQuote(${quote.id})">Löschen</button>
-                </div>
-            ` : '';
-
-            return `
-                <div class="quote-card">
-                    <div class="quote-text">${quote.text}</div>
-                    <div class="quote-meta">
-                        <div>
-                            <div class="quote-author">— ${quote.autor}</div>
-                            <small style="color: var(--text-secondary);">${formatDate(quote.datum)}</small>
-                        </div>
-                        <span class="quote-badge ${badgeClass}">${quote.gruppe}</span>
-                    </div>
-                    ${actions}
-                </div>
-            `;
-        }
-
-        // Format Date
-        function formatDate(dateStr) {
-            const date = new Date(dateStr);
-            return date.toLocaleDateString('de-DE', { year: 'numeric', month: 'long', day: 'numeric' });
-        }
-
-        // Show Add Modal
-        function showAddModal() {
-            currentEditId = null;
-            document.getElementById('modalTitle').textContent = 'Neues Zitat';
-            document.getElementById('quoteText').value = '';
-            document.getElementById('quoteAuthor').value = '';
-            document.getElementById('quoteGruppe').value = 'Andere';
-            document.getElementById('quoteDatum').value = new Date().toISOString().split('T')[0];
-            showModal('quoteModal');
-        }
-
-        // Edit Quote
-        async function editQuote(id) {
-            try {
-                const response = await fetch(`/api/zitate/${id}`);
-                const data = await response.json();
-                if (data.success) {
-                    currentEditId = id;
-                    document.getElementById('modalTitle').textContent = 'Zitat bearbeiten';
-                    document.getElementById('quoteText').value = data.zitat.text;
-                    document.getElementById('quoteAuthor').value = data.zitat.autor;
-                    document.getElementById('quoteGruppe').value = data.zitat.gruppe;
-                    document.getElementById('quoteDatum').value = data.zitat.datum;
-                    showModal('quoteModal');
-                }
-            } catch (error) {
-                alert('Fehler beim Laden des Zitats');
-            }
-        }
-
-        // Save Quote
-        async function saveQuote() {
-            const text = document.getElementById('quoteText').value;
-            const autor = document.getElementById('quoteAuthor').value;
-            const gruppe = document.getElementById('quoteGruppe').value;
-            const datum = document.getElementById('quoteDatum').value;
-
-            if (!text || !autor) {
-                alert('Bitte Text und Autor ausfüllen');
-                return;
-            }
-
-            const quoteData = { text, autor, gruppe, datum };
-
-            try {
-                const url = currentEditId ? `/api/zitate/${currentEditId}` : '/api/zitate';
-                const method = currentEditId ? 'PUT' : 'POST';
-
-                const response = await fetch(url, {
-                    method,
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(quoteData)
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    closeModal('quoteModal');
-                    loadQuotes();
-                    alert(currentEditId ? 'Zitat aktualisiert' : 'Zitat hinzugefügt');
-                } else {
-                    alert('Fehler: ' + data.error);
-                }
-            } catch (error) {
-                alert('Fehler beim Speichern');
-            }
-        }
-
-        // Delete Quote
-        async function deleteQuote(id) {
-            if (!confirm('Zitat wirklich löschen?')) return;
-
-            try {
-                const response = await fetch(`/api/zitate/${id}`, { method: 'DELETE' });
-                const data = await response.json();
-                if (data.success) {
-                    loadQuotes();
-                    alert('Zitat gelöscht');
-                }
-            } catch (error) {
-                alert('Fehler beim Löschen');
-            }
-        }
-
-        // Load Quote of the Day
-        async function loadQuoteOfDay() {
-            try {
-                const response = await fetch('/api/zitat-des-tages');
-                const data = await response.json();
-                if (data.success) {
-                    const quote = data.zitat;
-                    document.getElementById('dailyQuoteContent').innerHTML = `
-                        <div class="quote-text" style="color: white; font-size: 1.3rem;">${quote.text}</div>
-                        <div class="quote-author" style="color: rgba(255,255,255,0.9); margin-top: 15px; font-size: 1.1rem;">— ${quote.autor}</div>
-                    `;
-                }
-            } catch (error) {
-                document.getElementById('dailyQuoteContent').innerHTML = 'Kein Zitat verfügbar';
-            }
-        }
-
-        // Show Random Quote
-        async function showRandomQuote() {
-            try {
-                const response = await fetch('/api/zitat-des-tages');
-                const data = await response.json();
-                if (data.success) {
-                    const quote = data.zitat;
-                    const badgeClass = {
-                        'Schüler': 'badge-schueler',
-                        'Lehrer': 'badge-lehrer',
-                        'Andere': 'badge-andere'
-                    }[quote.gruppe] || 'badge-andere';
-
-                    document.getElementById('randomQuoteContent').innerHTML = `
-                        <div class="quote-text">${quote.text}</div>
-                        <div class="quote-meta" style="justify-content: center;">
-                            <div style="text-align: center;">
-                                <div class="quote-author">— ${quote.autor}</div>
-                                <small style="color: var(--text-secondary);">${formatDate(quote.datum)}</small>
-                            </div>
-                            <span class="quote-badge ${badgeClass}">${quote.gruppe}</span>
-                        </div>
-                    `;
-                    showModal('randomQuoteModal');
-                }
-            } catch (error) {
-                alert('Fehler beim Laden des Zitats');
-            }
+        // Show Alert
+        function showAlert(message, type) {
+            const container = document.getElementById('alert-container');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            container.appendChild(alert);
+            setTimeout(() => alert.remove(), 4000);
         }
 
         // Modal Functions
-        function showModal(id) {
-            document.getElementById(id).classList.add('active');
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('active');
         }
 
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('active');
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
         }
 
         function showLoginModal() {
@@ -992,21 +663,287 @@ HTML_TEMPLATE = '''
             showModal('loginModal');
         }
 
-        // Reset Filters
-        function resetFilters() {
-            document.getElementById('filterGruppe').value = 'alle';
-            document.getElementById('filterDatumVon').value = '';
-            document.getElementById('filterDatumBis').value = '';
-            loadQuotes();
+        function showAddModal() {
+            document.getElementById('quoteModalTitle').textContent = 'Neues Zitat';
+            document.getElementById('quoteId').value = '';
+            document.getElementById('quoteForm').reset();
+            document.getElementById('quoteDate').value = new Date().toISOString().split('T')[0];
+            showModal('quoteModal');
         }
 
-        // Initialize
-        checkAuth();
-        loadQuoteOfDay();
+        function showEditModal(quote) {
+            document.getElementById('quoteModalTitle').textContent = 'Zitat bearbeiten';
+            document.getElementById('quoteId').value = quote.id;
+            document.getElementById('quoteText').value = quote.text;
+            document.getElementById('quoteAuthor').value = quote.author;
+            document.getElementById('quoteGroup').value = quote.group_name;
+            document.getElementById('quoteDate').value = quote.date;
+            showModal('quoteModal');
+        }
+
+        // Login
+        async function login() {
+            const password = document.getElementById('loginPassword').value;
+            const response = await fetch('/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password})
+            });
+            const data = await response.json();
+            if (data.success) {
+                location.reload();
+            } else {
+                showAlert('Falsches Passwort', 'error');
+            }
+        }
+
+        // Logout
+        async function logout() {
+            await fetch('/logout');
+            location.reload();
+        }
+
+        // Load Quotes
+        async function loadQuotes() {
+            try {
+                const response = await fetch('/api/quotes');
+                quotes = await response.json();
+                renderQuotes(quotes);
+            } catch (error) {
+                showAlert('Fehler beim Laden der Zitate', 'error');
+            }
+        }
+
+        // Render Quotes
+        function renderQuotes(quotesToRender) {
+            const grid = document.getElementById('quotesGrid');
+            grid.innerHTML = '';
+            
+            if (quotesToRender.length === 0) {
+                grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #64748b;">Keine Zitate gefunden.</p>';
+                return;
+            }
+            
+            quotesToRender.forEach(quote => {
+                const card = document.createElement('div');
+                card.className = 'quote-card';
+                
+                const badgeClass = `badge-${quote.group_name.toLowerCase()}`;
+                
+                card.innerHTML = `
+                    <div class="quote-marks">"</div>
+                    <span class="quote-badge ${badgeClass}">${quote.group_name}</span>
+                    <div class="quote-text">"${quote.text}"</div>
+                    <div class="quote-author">— ${quote.author}</div>
+                    <div class="quote-date">${formatDate(quote.date)}</div>
+                    ${isAdmin ? `
+                        <div class="admin-controls">
+                            <button class="btn btn-small btn-edit" onclick='editQuote(${JSON.stringify(quote).replace(/'/g, "&#39;")})'>Bearbeiten</button>
+                            <button class="btn btn-small btn-delete" onclick="deleteQuote(${quote.id})">Löschen</button>
+                        </div>
+                    ` : ''}
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // Format Date
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            const months = ['Jan.', 'Feb.', 'Mär.', 'Apr.', 'Mai', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.'];
+            return `${date.getDate()}. ${months[date.getMonth()]} ${date.getFullYear()}`;
+        }
+
+        // Random Quote
+        function showRandomQuote() {
+            if (quotes.length === 0) {
+                showAlert('Keine Zitate verfügbar', 'error');
+                return;
+            }
+            const quote = quotes[Math.floor(Math.random() * quotes.length)];
+            const badgeClass = `badge-${quote.group_name.toLowerCase()}`;
+            
+            document.getElementById('randomQuoteContent').innerHTML = `
+                <span class="quote-badge ${badgeClass}">${quote.group_name}</span>
+                <div class="quote-text">"${quote.text}"</div>
+                <div class="quote-author">— ${quote.author}</div>
+                <div class="quote-date">${formatDate(quote.date)}</div>
+            `;
+            showModal('randomModal');
+        }
+
+        // Filters
+        function applyFilters() {
+            const dateFrom = document.getElementById('filterDateFrom').value;
+            const dateTo = document.getElementById('filterDateTo').value;
+            const group = document.getElementById('filterGroup').value;
+            
+            let filtered = quotes;
+            
+            if (dateFrom) {
+                filtered = filtered.filter(q => q.date >= dateFrom);
+            }
+            if (dateTo) {
+                filtered = filtered.filter(q => q.date <= dateTo);
+            }
+            if (group) {
+                filtered = filtered.filter(q => q.group_name === group);
+            }
+            
+            renderQuotes(filtered);
+        }
+
+        function resetFilters() {
+            document.getElementById('filterDateFrom').value = '';
+            document.getElementById('filterDateTo').value = '';
+            document.getElementById('filterGroup').value = '';
+            renderQuotes(quotes);
+        }
+
+        // CRUD Operations
+        document.getElementById('quoteForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('quoteId').value;
+            const quote = {
+                text: document.getElementById('quoteText').value,
+                author: document.getElementById('quoteAuthor').value,
+                group_name: document.getElementById('quoteGroup').value,
+                date: document.getElementById('quoteDate').value || new Date().toISOString().split('T')[0]
+            };
+            
+            try {
+                const url = id ? `/api/quotes/${id}` : '/api/quotes';
+                const method = id ? 'PUT' : 'POST';
+                
+                const response = await fetch(url, {
+                    method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(quote)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showAlert(id ? 'Zitat aktualisiert' : 'Zitat hinzugefügt', 'success');
+                    closeModal('quoteModal');
+                    loadQuotes();
+                } else {
+                    showAlert(`Fehler: ${JSON.stringify(data)}`, 'error');
+                }
+            } catch (error) {
+                showAlert('Fehler beim Speichern', 'error');
+                console.error(error);
+            }
+        });
+
+        function editQuote(quote) {
+            showEditModal(quote);
+        }
+
+        async function deleteQuote(id) {
+            if (!confirm('Zitat wirklich löschen?')) return;
+            
+            try {
+                const response = await fetch(`/api/quotes/${id}`, {method: 'DELETE'});
+                if (response.ok) {
+                    showAlert('Zitat gelöscht', 'success');
+                    loadQuotes();
+                } else {
+                    showAlert('Fehler beim Löschen', 'error');
+                }
+            } catch (error) {
+                showAlert('Fehler beim Löschen', 'error');
+            }
+        }
+
+        // Close modal on outside click
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.remove('active');
+                }
+            });
+        });
+
+        // Initial load
+        loadQuotes();
     </script>
 </body>
 </html>
-'''
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    if data.get('password') == ADMIN_PASSWORD:
+        session['admin'] = True
+        return jsonify({'success': True})
+    return jsonify({'success': False})
+
+@app.route('/logout')
+def logout():
+    session.pop('admin', None)
+    return jsonify({'success': True})
+
+@app.route('/api/quotes', methods=['GET'])
+def get_quotes():
+    try:
+        response = supabase.table('quotes').select('*').order('date', desc=True).execute()
+        return jsonify(response.data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/quotes', methods=['POST'])
+def add_quote():
+    if not session.get('admin'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        data = request.json
+        quote = {
+            'text': data['text'],
+            'author': data['author'],
+            'group_name': data['group_name'],
+            'date': data.get('date', date.today().isoformat())
+        }
+        response = supabase.table('quotes').insert(quote).execute()
+        return jsonify(response.data[0]), 201
+    except Exception as e:
+        return jsonify({'error': str(e), 'message': str(e)}), 500
+
+@app.route('/api/quotes/<int:quote_id>', methods=['PUT'])
+def update_quote(quote_id):
+    if not session.get('admin'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        data = request.json
+        quote = {
+            'text': data['text'],
+            'author': data['author'],
+            'group_name': data['group_name'],
+            'date': data.get('date')
+        }
+        response = supabase.table('quotes').update(quote).eq('id', quote_id).execute()
+        return jsonify(response.data[0])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/quotes/<int:quote_id>', methods=['DELETE'])
+def delete_quote(quote_id):
+    if not session.get('admin'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        supabase.table('quotes').delete().eq('id', quote_id).execute()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
